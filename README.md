@@ -50,8 +50,8 @@ Then enable the plugin in Albert's Python Modules settings.
 ## Configuration
 
 - **API Key** — paste your `sk-ant-...` key, or set the `ANTHROPIC_API_KEY` environment variable. Get a key at <https://console.anthropic.com/settings/keys>.
-- **Chat model** — used for `c <prompt>`. Default: `claude-opus-4-7`.
-- **Quick model** — used for `?` and `!`. Default: `claude-haiku-4-5`.
+- **Chat model** — used for `c <prompt>`. Default: `claude-opus-5-5`.
+- **Quick model** — used for `?` and `!`. Default: `claude-haiku-5-5`.
 - **System prompt** — override the default chat-mode system prompt. Leave empty to use the bundled launcher-tuned prompt.
 
 ## Caching

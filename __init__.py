@@ -80,6 +80,10 @@ EMPTY_QUERY_STATS_DELAY_SECONDS = 0.4
 # USD per 1M tokens. Rough but good enough for a launcher cost estimate.
 # Cache-read ≈ 10% of input rate; cache-write ≈ 125% of input rate.
 PRICES_PER_MTOK = {
+    "claude-fable-5-1":  {"in": 10.0, "out": 50.0, "cache_read": 0.25, "cache_write": 12.5},
+    "claude-opus-5-5":   {"in": 4.0,  "out": 20.0, "cache_read": 0.2,  "cache_write": 5.0},
+    "claude-sonnet-5-5": {"in": 2.0,  "out": 10.0, "cache_read": 0.2,  "cache_write": 2.5},
+    "claude-haiku-5-5":  {"in": 0.1,  "out": 0.5,  "cache_read": 0.01, "cache_write": 0.125},
     "claude-opus-4-7":   {"in": 5.0,  "out": 25.0, "cache_read": 0.5,  "cache_write": 6.25},
     "claude-opus-4-6":   {"in": 5.0,  "out": 25.0, "cache_read": 0.5,  "cache_write": 6.25},
     "claude-opus-4-5":   {"in": 5.0,  "out": 25.0, "cache_read": 0.5,  "cache_write": 6.25},
@@ -88,11 +92,24 @@ PRICES_PER_MTOK = {
     "claude-haiku-4-5":  {"in": 1.0,  "out": 5.0,  "cache_read": 0.1,  "cache_write": 1.25},
 }
 
+# Previous built-in defaults. Saved configs still holding one of these are
+# upgraded to the current default on load (user-picked models are kept).
+LEGACY_DEFAULTS = {
+    "model_fast": {"claude-haiku-4-5"},
+    "model_deep": {"claude-opus-4-7"},
+}
+
+# Notification body length for copy/notify output.
+NOTIFY_MAX_CHARS = 2000
+
+# Models that reject `output_config.effort`.
+NO_EFFORT_PREFIXES = ("claude-haiku-4", "claude-sonnet-4-5", "claude-3")
+
 
 class Plugin(PluginInstance, GeneratorQueryHandler):
     _api_key = ""
-    _model_fast = "claude-haiku-4-5"  # default for bare `c`, `?`, `!`
-    _model_deep = "claude-opus-4-7"   # secondary "deep" item on bare `c`
+    _model_fast = "claude-haiku-5-5"  # default for bare `c`, `?`, `!`
+    _model_deep = "claude-opus-5-5"   # secondary "deep" item on bare `c`
     _system_prompt = ""
 
     def __init__(self):
@@ -159,7 +176,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             ("system_prompt", str, self._system_prompt),
         ]:
             conf = self.readConfig(key, type_)
-            if conf is None:
+            if conf is None or conf in LEGACY_DEFAULTS.get(key, ()):
                 self.writeConfig(key, default)
                 setattr(self, f"_{key}", default)
             else:
@@ -220,19 +237,23 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         if mode == "fact":
             model = self.model_fast
             system = SYSTEM_PROMPT_FACT
-            max_tokens = 256
+            max_tokens = 1024
+            effort = "low"
         elif mode == "command":
             model = self.model_fast
             system = SYSTEM_PROMPT_COMMAND
-            max_tokens = 512
+            max_tokens = 2048
+            effort = "low"
         elif mode == "chat-deep":
             model = self.model_deep
             system = self.system_prompt or SYSTEM_PROMPT_DEFAULT
-            max_tokens = 4096
+            max_tokens = 16000
+            effort = "high"
         else:  # chat-fast (default)
             model = self.model_fast
             system = self.system_prompt or SYSTEM_PROMPT_DEFAULT
-            max_tokens = 2048
+            max_tokens = 4096
+            effort = "low"
 
         cache_key = (mode, prompt, model)
         now = time.time()
@@ -241,10 +262,15 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             if cached and now - cached[1] < CACHE_TTL_SECONDS:
                 return cached[0]
 
+        extra = {}
+        if not model.startswith(NO_EFFORT_PREFIXES):
+            extra["output_config"] = {"effort": effort}
+
         try:
             response = self.client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
+                **extra,
                 system=[{
                     "type": "text",
                     "text": system,
@@ -332,7 +358,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     @staticmethod
     def _output_copy(text: str):
         setClipboardText(text)
-        Notification(title="Claude", text=text[:300]).send()
+        Notification(title="Claude", text=Plugin._clip_notify(text)).send()
 
     @staticmethod
     def _output_paste(text: str):
@@ -367,8 +393,14 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         ).send()
 
     @staticmethod
+    def _clip_notify(text: str) -> str:
+        if len(text) <= NOTIFY_MAX_CHARS:
+            return text
+        return text[:NOTIFY_MAX_CHARS].rstrip() + "…"
+
+    @staticmethod
     def _output_notify(text: str):
-        Notification(title="Claude", text=text).send()
+        Notification(title="Claude", text=Plugin._clip_notify(text)).send()
 
     @staticmethod
     def _output_copyq(text: str, question: str = ""):
@@ -385,7 +417,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                 check=True,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-            Notification(title="Claude", text=f"Added to CopyQ history\n{text[:200]}").send()
+            Notification(title="Claude", text=f"Added to CopyQ history\n{Plugin._clip_notify(text)}").send()
         except Exception as e:
             warning(f"Claude: copyq add failed: {e}")
             setClipboardText(text)
@@ -458,12 +490,12 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
 
     @staticmethod
     def _combined_prompt(prompt: str, clipboard: str) -> str:
-        return f"{prompt}\n\nContext (from clipboard):\n{clipboard}"
+        return f"{prompt}\n\nInput (from clipboard):\n{clipboard}"
 
     @staticmethod
     def _combined_prompt_file(prompt: str, path: Path, content: str, truncated: bool) -> str:
         marker = f" (first {MAX_CLIPBOARD_FILE_BYTES} bytes)" if truncated else ""
-        return f"{prompt}\n\nContext (file {path}{marker}):\n{content}"
+        return f"{prompt}\n\nInput (file {path}{marker}):\n{content}"
 
     @staticmethod
     def _clipboard_preview(text: str, n: int = 80) -> str:
@@ -620,13 +652,13 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             prompt = self._combined_prompt_file(query, path, content, truncated)
             size = self._human_size(len(content.encode("utf-8")))
             trunc_tag = " (truncated)" if truncated else ""
-            label = f"{label_tag} with file"
+            label = f"{label_tag} · file as input"
             attach_meta = f" · {path.name} ({size}{trunc_tag})"
             id_suffix = f"-file-{hashlib.sha1(str(path).encode()).hexdigest()[:8]}"
         else:  # ("text", clipboard)
             _, clipboard = attachment
             prompt = self._combined_prompt(query, clipboard)
-            label = f"{label_tag} with clipboard"
+            label = f"{label_tag} · clipboard as input"
             attach_meta = f" · clip: {self._clipboard_preview(clipboard, n=40)}"
             id_suffix = f"-clip-{hashlib.sha1(clipboard.encode()).hexdigest()[:8]}"
 
@@ -707,12 +739,12 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                 combined = self._combined_prompt_file(real_query, path, content, truncated)
                 size_label = self._human_size(len(content.encode("utf-8")))
                 trunc = " (truncated)" if truncated else ""
-                follow_text = f"Re-ask with file"
+                follow_text = "Ask with file as input"
                 follow_sub = f"Enter: copy + notify · {path.name} ({size_label}{trunc}) · {model_short}"
             else:
                 _, clipboard = attachment
                 combined = self._combined_prompt(real_query, clipboard)
-                follow_text = f"Re-ask with clipboard"
+                follow_text = "Ask with clipboard as input"
                 follow_sub = f"Enter: copy + notify · clip: {self._clipboard_preview(clipboard, n=40)} · {model_short}"
 
             items.append(StandardItem(
