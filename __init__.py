@@ -703,13 +703,9 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         return model_id
 
     def _handle_live(self, ctx, real_query, mode, label_subtitle, id_prefix, actions_for):
-        yield [StandardItem(
-            id="claude-thinking",
-            text="Thinking...",
-            subtext=label_subtitle,
-            icon_factory=self._icon_factory,
-        )]
         # Debounce: short sleep so rapid typing doesn't fire an API call per keystroke.
+        # No placeholder: Albert appends later batches instead of replacing it, or
+        # fetches them only on scrolling.
         time.sleep(LIVE_DEBOUNCE_SECONDS)
         if not ctx.isValid:
             return
