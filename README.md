@@ -1,8 +1,11 @@
 # Claude — Albert Python Plugin
 
-> **Experimental.** Personal hack, single maintainer. Expect rough edges, breaking changes, and unreviewed code paths. Use at your own risk.
+> **Experimental.** still figure out the usecase :)
 
-Ask [Claude](https://www.anthropic.com/claude) from the [Albert Launcher](https://albertlauncher.github.io/). One-shot prompts, fact lookups, and command/code snippets — without opening a chat window.
+Ask [Claude](https://www.anthropic.com/claude) from the [Albert Launcher](https://albertlauncher.github.io/). One-shot prompts, fact lookups, clipboard in/output and command/code snippets — without opening a chat window.
+
+
+<img width="893" height="314" alt="image" src="https://github.com/user-attachments/assets/803c7205-ea17-42a9-abca-03191bb59128" />
 
 ## Modes
 
