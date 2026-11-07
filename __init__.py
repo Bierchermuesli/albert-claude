@@ -116,7 +116,8 @@ def paste_command():
     """
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
         if shutil.which("ydotool"):
-            return "ydotool key 42:1 110:1 110:0 42:0"
+            # Release modifiers first that may still be held from picking the action.
+            return "ydotool key 56:0 100:0 29:0 97:0 125:0 126:0 54:0 42:1 110:1 110:0 42:0"
         if shutil.which("wtype") and "KDE" not in os.environ.get("XDG_CURRENT_DESKTOP", ""):
             return "wtype -M shift -k Insert -m shift"
         return None
@@ -390,8 +391,8 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         if not cmd:
             Notification(title="Claude", text="No paste tool found, copied to clipboard.").send()
             return
-        # Give focus time to return from the launcher and the user time to release Alt.
-        subprocess.Popen(["sh", "-c", f"sleep 0.3 && {cmd}"],
+        # Albert returns the focus only some time after running the action.
+        subprocess.Popen(["sh", "-c", f"sleep 0.5 && {cmd}"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     @staticmethod
