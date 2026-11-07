@@ -107,19 +107,21 @@ NO_EFFORT_PREFIXES = ("claude-haiku-4", "claude-sonnet-4-5", "claude-3")
 
 
 def paste_command():
-    """Shell command that sends Ctrl+V to the focused window, or None if there is no usable tool.
+    """Shell command that pastes into the focused window, or None if there is no usable tool.
 
+    Shift+Insert rather than Ctrl+V, which terminals do not treat as paste. Albert sets the
+    clipboard and the primary selection, so it pastes the text either way.
     xdotool reaches X11 windows only and KWin lacks the virtual keyboard protocol wtype needs,
     so on KDE Wayland only ydotool works.
     """
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
         if shutil.which("ydotool"):
-            return "ydotool key 29:1 47:1 47:0 29:0"
+            return "ydotool key 42:1 110:1 110:0 42:0"
         if shutil.which("wtype") and "KDE" not in os.environ.get("XDG_CURRENT_DESKTOP", ""):
-            return "wtype -M ctrl v -m ctrl"
+            return "wtype -M shift -k Insert -m shift"
         return None
     if shutil.which("xdotool"):
-        return "xdotool key --clearmodifiers ctrl+v"
+        return "xdotool key --clearmodifiers shift+Insert"
     return None
 
 
@@ -388,8 +390,8 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         if not cmd:
             Notification(title="Claude", text="No paste tool found, copied to clipboard.").send()
             return
-        # Give focus time to return from the launcher.
-        subprocess.Popen(["sh", "-c", f"sleep 0.15 && {cmd}"],
+        # Give focus time to return from the launcher and the user time to release Alt.
+        subprocess.Popen(["sh", "-c", f"sleep 0.3 && {cmd}"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     @staticmethod
