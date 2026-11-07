@@ -32,13 +32,13 @@ The system prompt for `!` strips all prose and code fences — you get just the 
 ## Output channels (Alt menu on `c <prompt>`)
 
 - **Send + copy + notify** — default. Copies the response and shows a notification.
-- **Send + paste at cursor** — uses `setClipboardTextAndPaste()` if supported. Great for VS Code / terminal flows.
+- **Send + paste at cursor** — sends Ctrl+V to the focused window. Great for VS Code / terminal flows. Shown only with a paste tool: `xdotool` on X11, `ydotool` on Wayland (`wtype` works too, except on KDE).
 - **Send + open in markdown viewer** — writes `/tmp/claude-*.md` and runs `xdg-open` (your preferred markdown handler).
 - **Send + open in browser** — writes `/tmp/claude-*.html` rendered with code blocks and serves via `xdg-open`.
-- **Send + add to CopyQ history** — keeps your current clipboard intact and stashes the response in CopyQ. Falls back to clipboard if `copyq` isn't installed.
+- **Send + add to CopyQ history** — keeps your current clipboard intact and stashes the response in CopyQ. Shown only if `copyq` is installed.
 - **Send + notification only** — fire and forget; no clipboard pollution.
 
-`?` and `!` modes have a smaller subset of these on Alt, with the most ergonomic default per mode (copy for `?`, paste for `!`).
+`?` and `!` modes have a smaller subset of these on Alt, with the most ergonomic default per mode (copy for `?`, paste for `!`, copy without a paste tool).
 
 ## Installation
 

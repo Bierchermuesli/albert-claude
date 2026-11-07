@@ -106,6 +106,27 @@ NOTIFY_MAX_CHARS = 2000
 NO_EFFORT_PREFIXES = ("claude-haiku-4", "claude-sonnet-4-5", "claude-3")
 
 
+def paste_command():
+    """Shell command that sends Ctrl+V to the focused window, or None if there is no usable tool.
+
+    xdotool reaches X11 windows only and KWin lacks the virtual keyboard protocol wtype needs,
+    so on KDE Wayland only ydotool works.
+    """
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        if shutil.which("ydotool"):
+            return "ydotool key 29:1 47:1 47:0 29:0"
+        if shutil.which("wtype") and "KDE" not in os.environ.get("XDG_CURRENT_DESKTOP", ""):
+            return "wtype -M ctrl v -m ctrl"
+        return None
+    if shutil.which("xdotool"):
+        return "xdotool key --clearmodifiers ctrl+v"
+    return None
+
+
+def have_copyq():
+    return shutil.which("copyq") is not None
+
+
 class Plugin(PluginInstance, GeneratorQueryHandler):
     _api_key = ""
     _model_fast = "claude-haiku-5-5"  # default for bare `c`, `?`, `!`
@@ -362,35 +383,14 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
 
     @staticmethod
     def _output_paste(text: str):
-        # Always put it on the clipboard so the user can Ctrl+V manually
-        # if synthesized paste fails.
         setClipboardText(text)
-
-        # Prefer external helpers — Albert's built-in setClipboardTextAndPaste
-        # races with the launcher closing on some setups, so we synthesize
-        # Ctrl+V ourselves after a short delay that lets focus return.
-        helpers = [
-            ("xdotool", ["xdotool", "key", "--clearmodifiers", "ctrl+v"]),
-            ("wtype",   ["wtype", "-M", "ctrl", "v", "-m", "ctrl"]),
-            ("ydotool", ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"]),
-        ]
-        for binary, cmd in helpers:
-            if shutil.which(binary):
-                subprocess.Popen(
-                    ["sh", "-c", f"sleep 0.15 && {' '.join(cmd)}"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                return
-
-        # No external helper — try Albert's built-in as a last resort.
-        if havePasteSupport():
-            setClipboardTextAndPaste(text)
+        cmd = paste_command()
+        if not cmd:
+            Notification(title="Claude", text="No paste tool found, copied to clipboard.").send()
             return
-
-        Notification(
-            title="Claude",
-            text="Paste not available — install xdotool (X11) or wtype/ydotool (Wayland). Copied to clipboard.",
-        ).send()
+        # Give focus time to return from the launcher.
+        subprocess.Popen(["sh", "-c", f"sleep 0.15 && {cmd}"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     @staticmethod
     def _clip_notify(text: str) -> str:
@@ -673,14 +673,14 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             actions=[
                 Action("send-copy", "Copy + notify",
                        lambda p=prompt, m=mode: self._async_send(p, self._output_copy, mode=m)),
-                Action("send-paste", "Paste at cursor",
-                       lambda p=prompt, m=mode: self._async_send(p, self._output_paste, mode=m)),
+                *([Action("send-paste", "Paste at cursor",
+                       lambda p=prompt, m=mode: self._async_send(p, self._output_paste, mode=m))] if paste_command() else []),
                 Action("send-window", "Open in markdown viewer",
                        lambda p=prompt, q=query, m=mode: self._async_send(p, lambda t, qq=q: self._output_window(t, qq), mode=m)),
                 Action("send-browser", "Open in browser",
                        lambda p=prompt, q=query, m=mode: self._async_send(p, lambda t, qq=q: self._output_browser(t, qq), mode=m)),
-                Action("send-copyq", "Add to CopyQ history",
-                       lambda p=prompt, q=query, m=mode: self._async_send(p, lambda t, qq=q: self._output_copyq(t, qq), mode=m)),
+                *([Action("send-copyq", "Add to CopyQ history",
+                       lambda p=prompt, q=query, m=mode: self._async_send(p, lambda t, qq=q: self._output_copyq(t, qq), mode=m))] if have_copyq() else []),
                 Action("send-notify", "Notification only",
                        lambda p=prompt, m=mode: self._async_send(p, self._output_notify, mode=m)),
             ],
@@ -751,10 +751,10 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                 actions=[
                     Action("send-copy", "Send + copy + notify",
                            lambda p=combined, m=mode: self._async_send(p, self._output_copy, mode=m)),
-                    Action("send-paste", "Send + paste at cursor",
-                           lambda p=combined, m=mode: self._async_send(p, self._output_paste, mode=m)),
-                    Action("send-copyq", "Send + add to CopyQ history",
-                           lambda p=combined, q=real_query, m=mode: self._async_send(p, lambda t, qq=q: self._output_copyq(t, qq), mode=m)),
+                    *([Action("send-paste", "Send + paste at cursor",
+                           lambda p=combined, m=mode: self._async_send(p, self._output_paste, mode=m))] if paste_command() else []),
+                    *([Action("send-copyq", "Send + add to CopyQ history",
+                           lambda p=combined, q=real_query, m=mode: self._async_send(p, lambda t, qq=q: self._output_copyq(t, qq), mode=m))] if have_copyq() else []),
                 ],
             ))
 
@@ -763,16 +763,16 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def _actions_fact(self, text, prompt):
         return [
             Action("copy", "Copy", lambda t=text: self._output_copy(t)),
-            Action("paste", "Paste at cursor", lambda t=text: self._output_paste(t)),
-            Action("copyq", "Add to CopyQ history", lambda t=text, p=prompt: self._output_copyq(t, p)),
+            *([Action("paste", "Paste at cursor", lambda t=text: self._output_paste(t))] if paste_command() else []),
+            *([Action("copyq", "Add to CopyQ history", lambda t=text, p=prompt: self._output_copyq(t, p))] if have_copyq() else []),
             Action("notify", "Show notification", lambda t=text: self._output_notify(t)),
         ]
 
     def _actions_command(self, text, prompt):
         return [
-            Action("paste", "Paste at cursor", lambda t=text: self._output_paste(t)),
+            *([Action("paste", "Paste at cursor", lambda t=text: self._output_paste(t))] if paste_command() else []),
             Action("copy", "Copy", lambda t=text: self._output_copy(t)),
-            Action("copyq", "Add to CopyQ history", lambda t=text, p=prompt: self._output_copyq(t, p)),
+            *([Action("copyq", "Add to CopyQ history", lambda t=text, p=prompt: self._output_copyq(t, p))] if have_copyq() else []),
             Action("window", "Open in viewer",
                    lambda t=text, p=prompt: self._output_window(t, p)),
         ]
